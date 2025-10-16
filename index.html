@@ -116,7 +116,7 @@
             border-radius: 8px;
             box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
             padding: 20px;
-            position: relative;
+            position: relative; /* Needed for tooltip positioning */
         }
 
         body.dark-mode #chart-container {
@@ -129,6 +129,7 @@
             width: 100%; /* Make canvas responsive to its container */
             height: auto;
             max-height: 400px; /* Limit max height */
+            transition: opacity 0.3s ease-in-out; /* Smooth fade for chart updates */
         }
         
         .chart-title {
@@ -161,6 +162,20 @@
             border-color: #f7b7bb;
         }
 
+        #chart-tooltip {
+            position: absolute;
+            background-color: rgba(0, 0, 0, 0.75);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-size: 0.9em;
+            pointer-events: none; /* Allows mouse events to pass through to canvas */
+            white-space: nowrap;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.2s ease-in-out;
+        }
+
         /* Responsive adjustments */
         @media (max-width: 768px) {
             .controls {
@@ -185,6 +200,7 @@
         <label for="city-search">Search City:</label>
         <input type="text" id="city-search" placeholder="Type city name...">
         
+        <button id="refresh-data-button">Refresh Data</button>
         <button id="dark-mode-toggle">Toggle Dark Mode</button>
     </div>
 
@@ -192,45 +208,54 @@
         <h2 class="chart-title" id="current-city-title">Average Monthly Temperatures</h2>
         <canvas id="weatherChart"></canvas>
         <p class="no-data-message" style="display: none;">No data available for the selected city or search criteria.</p>
+        <div id="chart-tooltip"></div>
     </div>
 
     <script>
         // Raw JSON data - simulating data.json fetch
-        const jsonData = `{"cities":[{"name":"New York","tems":[12,15,18,19,16,22,19,18,14,12,11,13]},{"name":"London","tems":[11,13,17,18,20,21,20,18,17,14,12,10]},{"name":"Singapore","tems":[13,14,16,18,20,22,19,18,17,15,14,13]}]}`;
+        const RAW_JSON_DATA = `{"cities":[{"name":"New York","tems":[12,15,18,19,16,22,19,18,14,12,11,13]},{"name":"London","tems":[11,13,17,18,20,21,20,18,17,14,12,10]},{"name":"Singapore","tems":[13,14,16,18,20,22,19,18,17,15,14,13]}]}`;
         
         let allCitiesData;
         let chartCanvas, chartCtx;
-        let citySelect, citySearchInput, darkModeToggle;
+        let citySelect, citySearchInput, darkModeToggle, refreshDataButton;
         let currentCityTitle;
         let noDataMessage;
+        let chartTooltip; // New
+        let dataPointsCoordinates = []; // New, stores {x, y, temp, month} for tooltips
 
         const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const CHART_TRANSITION_DURATION = 300; // ms, matches CSS transition duration
+        const TOOLTIP_HOVER_RADIUS = 15; // px
 
         document.addEventListener('DOMContentLoaded', init);
 
-        function init() {
+        async function init() {
             // Get DOM elements
             chartCanvas = document.getElementById('weatherChart');
             chartCtx = chartCanvas.getContext('2d');
             citySelect = document.getElementById('city-select');
             citySearchInput = document.getElementById('city-search');
             darkModeToggle = document.getElementById('dark-mode-toggle');
+            refreshDataButton = document.getElementById('refresh-data-button'); // New
             currentCityTitle = document.getElementById('current-city-title');
             noDataMessage = document.querySelector('.no-data-message');
+            chartTooltip = document.getElementById('chart-tooltip'); // New
 
-            // Parse the JSON data
-            try {
-                allCitiesData = JSON.parse(jsonData).cities;
-            } catch (error) {
-                console.error("Error parsing JSON data:", error);
-                allCitiesData = [];
-            }
+            applyDarkModePreference(); // Apply dark mode preference on load
 
             // Set initial canvas dimensions and attach resize listener
             resizeChartCanvas();
             window.addEventListener('resize', resizeChartCanvas);
 
-            // Initial population and chart draw
+            // Fetch initial data
+            try {
+                allCitiesData = await fetchData(); // Use await here
+            } catch (error) {
+                console.error("Error fetching initial data:", error);
+                allCitiesData = [];
+            }
+
+            // Initial population and chart draw (without transition delay for first load)
             populateCitySelect(allCitiesData);
             if (allCitiesData.length > 0) {
                 const initialCity = allCitiesData[0];
@@ -244,30 +269,50 @@
             citySelect.addEventListener('change', onCitySelectChange);
             citySearchInput.addEventListener('input', filterCities);
             darkModeToggle.addEventListener('click', toggleDarkMode);
+            refreshDataButton.addEventListener('click', refreshData); // New
+            chartCanvas.addEventListener('mousemove', handleMouseMove); // New
+            chartCanvas.addEventListener('mouseleave', handleMouseLeave); // New
+        }
+
+        // Simulate data fetching
+        async function fetchData() {
+            // In a real application, this would be:
+            // const response = await fetch('data.json');
+            // const data = await response.json();
+            // return data.cities;
+
+            // For this exercise, we simulate a network delay and parse the local string.
+            await new Promise(resolve => setTimeout(resolve, 300)); // Simulate network latency
+            return JSON.parse(RAW_JSON_DATA).cities;
+        }
+
+        // Apply dark mode preference from localStorage
+        function applyDarkModePreference() {
+            const isDarkMode = localStorage.getItem('darkMode');
+            if (isDarkMode === 'true') {
+                document.body.classList.add('dark-mode');
+            }
         }
 
         function resizeChartCanvas() {
-            // Set canvas resolution for better quality on high-DPI screens
-            const container = chartCanvas.parentElement; // Parent is chart-container div
+            const container = chartCanvas.parentElement;
             const dpi = window.devicePixelRatio || 1;
             
-            // Calculate actual display width needed for canvas inside its container
             // Subtract padding of the #chart-container (20px left + 20px right)
             const clientWidth = container.clientWidth - 40; 
             
-            // Set canvas display size for CSS (e.g., maintain 2:1 aspect ratio)
             chartCanvas.style.width = clientWidth + 'px';
-            chartCanvas.style.height = (clientWidth * 0.5) + 'px'; 
+            chartCanvas.style.height = (clientWidth * 0.5) + 'px'; // Maintain 2:1 aspect ratio
 
-            // Set canvas drawing buffer size for resolution
             chartCanvas.width = clientWidth * dpi;
             chartCanvas.height = (clientWidth * 0.5) * dpi;
             
-            // Scale context to match DPI for clear drawing
+            chartCtx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform before scaling
             chartCtx.scale(dpi, dpi); 
 
             // Redraw chart after resize to ensure it fits new dimensions
-            onCitySelectChange();
+            // Use triggerChartUpdate to ensure correct state after resize
+            triggerChartUpdate();
         }
 
         function populateCitySelect(citiesToDisplay) {
@@ -313,22 +358,34 @@
             }
             
             // Update chart based on the new selection
-            onCitySelectChange();
+            triggerChartUpdate();
         }
 
+        // Event handler for city select change - simply triggers the update process
         function onCitySelectChange() {
-            const selectedCityName = citySelect.value;
-            const selectedCity = allCitiesData.find(city => city.name === selectedCityName);
+            triggerChartUpdate();
+        }
 
-            if (selectedCity && selectedCity.tems && selectedCity.tems.length > 0) {
-                displayNoDataMessage(false);
-                drawChart(selectedCity.tems, selectedCity.name);
-            } else {
-                displayNoDataMessage(true);
-                // Clear chart if no valid city or data is selected
-                chartCtx.clearRect(0, 0, chartCanvas.width, chartCanvas.height);
-                currentCityTitle.textContent = "Average Monthly Temperatures";
-            }
+        // Function to handle chart updates with fade transition
+        function triggerChartUpdate() {
+            chartCanvas.style.opacity = 0; // Start fade-out
+            chartTooltip.style.opacity = 0; // Hide tooltip during transition
+
+            setTimeout(() => {
+                const selectedCityName = citySelect.value;
+                const selectedCity = allCitiesData.find(city => city.name === selectedCityName);
+
+                if (selectedCity && selectedCity.tems && selectedCity.tems.length > 0) {
+                    displayNoDataMessage(false);
+                    drawChart(selectedCity.tems, selectedCity.name);
+                } else {
+                    displayNoDataMessage(true);
+                    // Clear chart content if no data
+                    chartCtx.clearRect(0, 0, chartCanvas.width / (window.devicePixelRatio || 1), chartCanvas.height / (window.devicePixelRatio || 1));
+                    currentCityTitle.textContent = "Average Monthly Temperatures";
+                }
+                chartCanvas.style.opacity = 1; // Fade-in the new chart
+            }, CHART_TRANSITION_DURATION);
         }
 
         function displayNoDataMessage(show) {
@@ -339,8 +396,33 @@
 
         function toggleDarkMode() {
             document.body.classList.toggle('dark-mode');
+            // Save preference to localStorage
+            localStorage.setItem('darkMode', document.body.classList.contains('dark-mode'));
             // Redraw chart to update colors based on new dark mode state
-            onCitySelectChange(); 
+            triggerChartUpdate(); 
+        }
+
+        // New function to refresh data from source
+        async function refreshData() {
+            console.log("Refreshing data...");
+            // Start transition immediately
+            chartCanvas.style.opacity = 0;
+            chartTooltip.style.opacity = 0; // Hide tooltip immediately
+
+            try {
+                allCitiesData = await fetchData();
+                populateCitySelect(allCitiesData);
+                // Ensure the currently selected city (or first available) is drawn
+                // `populateCitySelect` might change `citySelect.value` if the old selection is gone.
+                // Call triggerChartUpdate after a delay to allow fade out before new data renders.
+                setTimeout(() => {
+                    triggerChartUpdate();
+                }, CHART_TRANSITION_DURATION);
+            } catch (error) {
+                console.error("Error refreshing data:", error);
+                // Ensure chart fades back in even if error occurs
+                chartCanvas.style.opacity = 1;
+            }
         }
 
         function drawChart(temperatures, cityName) {
@@ -358,28 +440,25 @@
             const chartTextColor = isDarkMode ? '#e0e0e0' : '#333';
             const chartGridColor = isDarkMode ? '#555' : '#e0e0e0';
             const chartLineColor = isDarkMode ? '#61dafb' : '#007bff';
-            const chartPointColor = isDarkMode ? '#20c997' : '#ffc107'; // A different color for points
+            const chartPointColor = isDarkMode ? '#20c997' : '#ffc107'; 
             const chartAxisColor = isDarkMode ? '#bbb' : '#555';
 
-            // Reset transformation before clearing to clear the entire canvas
-            chartCtx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
-            chartCtx.clearRect(0, 0, chartCanvas.width, chartCanvas.height);
-            // Reapply scaling
-            chartCtx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+            chartCtx.clearRect(0, 0, chartCanvas.width, chartCanvas.height); // Clear the entire drawing buffer
 
-            const padding = 60; // Padding for the chart area within the canvas
-            const canvasWidth = chartCanvas.width / (window.devicePixelRatio || 1);
-            const canvasHeight = chartCanvas.height / (window.devicePixelRatio || 1);
-            const chartWidth = canvasWidth - 2 * padding;
-            const chartHeight = canvasHeight - 2 * padding;
+            const dpi = window.devicePixelRatio || 1;
+            const cssCanvasWidth = chartCanvas.width / dpi;
+            const cssCanvasHeight = chartCanvas.height / dpi;
+
+            const padding = 60; // Padding for the chart area within the canvas (in CSS pixels)
+            const chartWidth = cssCanvasWidth - 2 * padding;
+            const chartHeight = cssCanvasHeight - 2 * padding;
 
             // Find min and max temperatures for y-axis scaling
             const minTemp = Math.min(...temperatures);
             const maxTemp = Math.max(...temperatures);
-            let displayMinTemp = minTemp - (maxTemp - minTemp) * 0.1; // Add 10% padding below min
-            let displayMaxTemp = maxTemp + (maxTemp - minTemp) * 0.1; // Add 10% padding above max
+            let displayMinTemp = minTemp - (maxTemp - minTemp) * 0.1; 
+            let displayMaxTemp = maxTemp + (maxTemp - minTemp) * 0.1;
 
-            // Handle cases where all temperatures are the same
             if (minTemp === maxTemp) {
                 displayMinTemp = minTemp - 5;
                 displayMaxTemp = maxTemp + 5;
@@ -389,7 +468,7 @@
 
             // Draw X and Y axes
             chartCtx.strokeStyle = chartAxisColor;
-            chartCtx.lineWidth = 2; // Thicker axes
+            chartCtx.lineWidth = 2;
 
             // Y-axis
             chartCtx.beginPath();
@@ -404,7 +483,7 @@
             chartCtx.stroke();
 
             chartCtx.fillStyle = chartTextColor;
-            chartCtx.font = '14px Arial';
+            chartCtx.font = '14px Arial'; // Font size in CSS pixels
             chartCtx.textAlign = 'center';
             chartCtx.textBaseline = 'middle';
 
@@ -412,10 +491,10 @@
             const xStep = chartWidth / (months.length - 1); // Distance between points
             months.forEach((month, i) => {
                 const x = padding + i * xStep;
-                chartCtx.fillText(month, x, padding + chartHeight + 25); // Label below axis
+                chartCtx.fillText(month, x, padding + chartHeight + 25);
                 
                 // Draw vertical grid lines
-                if (i > 0 && i < months.length) { // Don't draw grid line on Y axis
+                if (i > 0 && i < months.length) { 
                     chartCtx.strokeStyle = chartGridColor;
                     chartCtx.lineWidth = 0.5;
                     chartCtx.beginPath();
@@ -426,7 +505,7 @@
             });
 
             // Draw Y-axis labels (Temperatures) and horizontal grid lines
-            const numYLabels = 5; // Approx number of labels
+            const numYLabels = 5; 
             const tempInterval = displayTempRange / (numYLabels - 1);
 
             chartCtx.textAlign = 'right';
@@ -434,7 +513,6 @@
                 const tempValue = displayMinTemp + i * tempInterval;
                 const y = padding + chartHeight - ((tempValue - displayMinTemp) * yAxisScale);
                 
-                // Ensure label is within canvas bounds
                 if (y < padding - 5 || y > padding + chartHeight + 5) continue;
 
                 chartCtx.fillText(tempValue.toFixed(0) + '°C', padding - 10, y);
@@ -455,6 +533,9 @@
             chartCtx.lineJoin = 'round';
             chartCtx.lineCap = 'round';
 
+            // Reset dataPointsCoordinates for new chart
+            dataPointsCoordinates = [];
+
             temperatures.forEach((temp, i) => {
                 const x = padding + i * xStep;
                 const y = padding + chartHeight - ((temp - displayMinTemp) * yAxisScale);
@@ -464,22 +545,55 @@
                 } else {
                     chartCtx.lineTo(x, y);
                 }
+                // Store data point coordinates for tooltip
+                dataPointsCoordinates.push({ x: x, y: y, temp: temp, month: months[i] });
             });
             chartCtx.stroke();
 
             // Draw data points after the line
-            temperatures.forEach((temp, i) => {
-                const x = padding + i * xStep;
-                const y = padding + chartHeight - ((temp - displayMinTemp) * yAxisScale);
-                
+            dataPointsCoordinates.forEach(point => { // Use stored points
                 chartCtx.fillStyle = chartPointColor;
-                chartCtx.strokeStyle = chartLineColor; // Border around points
+                chartCtx.strokeStyle = chartLineColor; 
                 chartCtx.lineWidth = 1.5;
                 chartCtx.beginPath();
-                chartCtx.arc(x, y, 5, 0, Math.PI * 2); // Radius 5
+                chartCtx.arc(point.x, point.y, 5, 0, Math.PI * 2); 
                 chartCtx.fill();
                 chartCtx.stroke();
             });
+        }
+
+        // New function to handle mouse movement for tooltip
+        function handleMouseMove(event) {
+            if (!chartCanvas || !dataPointsCoordinates || dataPointsCoordinates.length === 0) return;
+
+            const rect = chartCanvas.getBoundingClientRect();
+            // Mouse coordinates relative to the canvas CSS pixel size
+            const mouseX = event.clientX - rect.left;
+            const mouseY = event.clientY - rect.top;
+
+            let tooltipVisible = false;
+            for (const point of dataPointsCoordinates) {
+                // Calculate distance between mouse and data point
+                const distance = Math.sqrt(Math.pow(mouseX - point.x, 2) + Math.pow(mouseY - point.y, 2));
+                if (distance < TOOLTIP_HOVER_RADIUS) {
+                    chartTooltip.textContent = `${point.month}: ${point.temp}°C`;
+                    // Position tooltip relative to the chart-container, which is 'relative'
+                    chartTooltip.style.left = `${mouseX + 15}px`;
+                    chartTooltip.style.top = `${mouseY + 15}px`;
+                    chartTooltip.style.opacity = 1;
+                    tooltipVisible = true;
+                    break;
+                }
+            }
+
+            if (!tooltipVisible) {
+                chartTooltip.style.opacity = 0;
+            }
+        }
+
+        // New function to hide tooltip when mouse leaves canvas
+        function handleMouseLeave() {
+            chartTooltip.style.opacity = 0;
         }
     </script>
 </body>
