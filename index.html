@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather Trends Dashboard</title>
+    <style>
+        /* Base styles */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f7f6;
+            color: #333;
+            transition: background-color 0.3s, color 0.3s;
+            line-height: 1.6;
+        }
+
+        /* Dark Mode styles */
+        body.dark-mode {
+            background-color: #282c34;
+            color: #e0e0e0;
+        }
+
+        h1 {
+            color: #007bff;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            font-weight: 600;
+        }
+
+        body.dark-mode h1 {
+            color: #61dafb;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 30px;
+            padding: 15px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+            max-width: 900px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        body.dark-mode .controls {
+            background-color: #3a3f4a;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        .controls label {
+            font-weight: bold;
+            color: #555;
+        }
+
+        body.dark-mode .controls label {
+            color: #bbb;
+        }
+
+        .controls select,
+        .controls input[type="text"],
+        .controls button {
+            padding: 10px 15px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 1rem;
+            background-color: #fff;
+            color: #333;
+            transition: all 0.3s ease;
+            box-sizing: border-box; /* Include padding and border in the element's total width and height */
+        }
+
+        body.dark-mode .controls select,
+        body.dark-mode .controls input[type="text"],
+        body.dark-mode .controls button {
+            background-color: #4a4f5d;
+            border-color: #555;
+            color: #e0e0e0;
+        }
+
+        .controls select:focus,
+        .controls input[type="text"]:focus {
+            border-color: #007bff;
+            box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+            outline: none;
+        }
+
+        .controls button {
+            cursor: pointer;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            font-weight: bold;
+        }
+
+        body.dark-mode .controls button {
+            background-color: #20c997;
+        }
+
+        .controls button:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        #chart-container {
+            max-width: 900px;
+            margin: 0 auto;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            position: relative;
+        }
+
+        body.dark-mode #chart-container {
+            background-color: #3a3f4a;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        #weatherChart {
+            display: block; /* Remove extra space below canvas */
+            width: 100%; /* Make canvas responsive to its container */
+            height: auto;
+            max-height: 400px; /* Limit max height */
+        }
+        
+        .chart-title {
+            text-align: center;
+            font-size: 1.5em;
+            margin-bottom: 15px;
+            color: #555;
+            font-weight: 500;
+        }
+
+        body.dark-mode .chart-title {
+            color: #bbb;
+        }
+
+        .no-data-message {
+            text-align: center;
+            color: #dc3545;
+            font-weight: bold;
+            margin-top: 20px;
+            font-size: 1.1em;
+            padding: 10px;
+            border: 1px solid #dc3545;
+            background-color: #f8d7da;
+            border-radius: 5px;
+        }
+
+        body.dark-mode .no-data-message {
+            background-color: #6a282f;
+            color: #f7b7bb;
+            border-color: #f7b7bb;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .controls select,
+            .controls input[type="text"],
+            .controls button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Weather Trends Dashboard</h1>
+
+    <div class="controls">
+        <label for="city-select">Select City:</label>
+        <select id="city-select"></select>
+
+        <label for="city-search">Search City:</label>
+        <input type="text" id="city-search" placeholder="Type city name...">
+        
+        <button id="dark-mode-toggle">Toggle Dark Mode</button>
+    </div>
+
+    <div id="chart-container">
+        <h2 class="chart-title" id="current-city-title">Average Monthly Temperatures</h2>
+        <canvas id="weatherChart"></canvas>
+        <p class="no-data-message" style="display: none;">No data available for the selected city or search criteria.</p>
+    </div>
+
+    <script>
+        // Raw JSON data - simulating data.json fetch
+        const jsonData = `{"cities":[{"name":"New York","tems":[12,15,18,19,16,22,19,18,14,12,11,13]},{"name":"London","tems":[11,13,17,18,20,21,20,18,17,14,12,10]},{"name":"Singapore","tems":[13,14,16,18,20,22,19,18,17,15,14,13]}]}`;
+        
+        let allCitiesData;
+        let chartCanvas, chartCtx;
+        let citySelect, citySearchInput, darkModeToggle;
+        let currentCityTitle;
+        let noDataMessage;
+
+        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+        document.addEventListener('DOMContentLoaded', init);
+
+        function init() {
+            // Get DOM elements
+            chartCanvas = document.getElementById('weatherChart');
+            chartCtx = chartCanvas.getContext('2d');
+            citySelect = document.getElementById('city-select');
+            citySearchInput = document.getElementById('city-search');
+            darkModeToggle = document.getElementById('dark-mode-toggle');
+            currentCityTitle = document.getElementById('current-city-title');
+            noDataMessage = document.querySelector('.no-data-message');
+
+            // Parse the JSON data
+            try {
+                allCitiesData = JSON.parse(jsonData).cities;
+            } catch (error) {
+                console.error("Error parsing JSON data:", error);
+                allCitiesData = [];
+            }
+
+            // Set initial canvas dimensions and attach resize listener
+            resizeChartCanvas();
+            window.addEventListener('resize', resizeChartCanvas);
+
+            // Initial population and chart draw
+            populateCitySelect(allCitiesData);
+            if (allCitiesData.length > 0) {
+                const initialCity = allCitiesData[0];
+                citySelect.value = initialCity.name; // Ensure dropdown reflects the first city
+                drawChart(initialCity.tems, initialCity.name);
+            } else {
+                displayNoDataMessage(true);
+            }
+
+            // Event Listeners
+            citySelect.addEventListener('change', onCitySelectChange);
+            citySearchInput.addEventListener('input', filterCities);
+            darkModeToggle.addEventListener('click', toggleDarkMode);
+        }
+
+        function resizeChartCanvas() {
+            // Set canvas resolution for better quality on high-DPI screens
+            const container = chartCanvas.parentElement; // Parent is chart-container div
+            const dpi = window.devicePixelRatio || 1;
+            
+            // Calculate actual display width needed for canvas inside its container
+            // Subtract padding of the #chart-container (20px left + 20px right)
+            const clientWidth = container.clientWidth - 40; 
+            
+            // Set canvas display size for CSS (e.g., maintain 2:1 aspect ratio)
+            chartCanvas.style.width = clientWidth + 'px';
+            chartCanvas.style.height = (clientWidth * 0.5) + 'px'; 
+
+            // Set canvas drawing buffer size for resolution
+            chartCanvas.width = clientWidth * dpi;
+            chartCanvas.height = (clientWidth * 0.5) * dpi;
+            
+            // Scale context to match DPI for clear drawing
+            chartCtx.scale(dpi, dpi); 
+
+            // Redraw chart after resize to ensure it fits new dimensions
+            onCitySelectChange();
+        }
+
+        function populateCitySelect(citiesToDisplay) {
+            citySelect.innerHTML = ''; // Clear existing options
+            if (citiesToDisplay.length === 0) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = 'No cities found';
+                citySelect.appendChild(option);
+                citySelect.disabled = true;
+                return;
+            }
+            citySelect.disabled = false;
+
+            citiesToDisplay.forEach(city => {
+                const option = document.createElement('option');
+                option.value = city.name;
+                option.textContent = city.name;
+                citySelect.appendChild(option);
+            });
+        }
+
+        function filterCities() {
+            const searchTerm = citySearchInput.value.toLowerCase();
+            const filtered = allCitiesData.filter(city => 
+                city.name.toLowerCase().includes(searchTerm)
+            );
+
+            populateCitySelect(filtered);
+
+            // Logic to handle selection after filtering
+            const currentSelectedCity = citySelect.value;
+            const isCurrentSelectedInFiltered = filtered.some(city => city.name === currentSelectedCity);
+
+            if (!isCurrentSelectedInFiltered && filtered.length > 0) {
+                // If previously selected city is filtered out, select the first available
+                citySelect.value = filtered[0].name;
+            } else if (filtered.length === 0) {
+                citySelect.value = ''; // No city to select
+            } else {
+                // Keep the current selection if it's still valid
+                citySelect.value = currentSelectedCity;
+            }
+            
+            // Update chart based on the new selection
+            onCitySelectChange();
+        }
+
+        function onCitySelectChange() {
+            const selectedCityName = citySelect.value;
+            const selectedCity = allCitiesData.find(city => city.name === selectedCityName);
+
+            if (selectedCity && selectedCity.tems && selectedCity.tems.length > 0) {
+                displayNoDataMessage(false);
+                drawChart(selectedCity.tems, selectedCity.name);
+            } else {
+                displayNoDataMessage(true);
+                // Clear chart if no valid city or data is selected
+                chartCtx.clearRect(0, 0, chartCanvas.width, chartCanvas.height);
+                currentCityTitle.textContent = "Average Monthly Temperatures";
+            }
+        }
+
+        function displayNoDataMessage(show) {
+            noDataMessage.style.display = show ? 'block' : 'none';
+            chartCanvas.style.display = show ? 'none' : 'block';
+            currentCityTitle.style.display = show ? 'none' : 'block';
+        }
+
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark-mode');
+            // Redraw chart to update colors based on new dark mode state
+            onCitySelectChange(); 
+        }
+
+        function drawChart(temperatures, cityName) {
+            if (!temperatures || temperatures.length === 0) {
+                displayNoDataMessage(true);
+                return;
+            }
+            displayNoDataMessage(false);
+
+            currentCityTitle.textContent = `Average Monthly Temperatures for ${cityName}`;
+
+            const isDarkMode = document.body.classList.contains('dark-mode');
+            
+            // Colors for chart elements based on theme
+            const chartTextColor = isDarkMode ? '#e0e0e0' : '#333';
+            const chartGridColor = isDarkMode ? '#555' : '#e0e0e0';
+            const chartLineColor = isDarkMode ? '#61dafb' : '#007bff';
+            const chartPointColor = isDarkMode ? '#20c997' : '#ffc107'; // A different color for points
+            const chartAxisColor = isDarkMode ? '#bbb' : '#555';
+
+            // Reset transformation before clearing to clear the entire canvas
+            chartCtx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
+            chartCtx.clearRect(0, 0, chartCanvas.width, chartCanvas.height);
+            // Reapply scaling
+            chartCtx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+
+            const padding = 60; // Padding for the chart area within the canvas
+            const canvasWidth = chartCanvas.width / (window.devicePixelRatio || 1);
+            const canvasHeight = chartCanvas.height / (window.devicePixelRatio || 1);
+            const chartWidth = canvasWidth - 2 * padding;
+            const chartHeight = canvasHeight - 2 * padding;
+
+            // Find min and max temperatures for y-axis scaling
+            const minTemp = Math.min(...temperatures);
+            const maxTemp = Math.max(...temperatures);
+            let displayMinTemp = minTemp - (maxTemp - minTemp) * 0.1; // Add 10% padding below min
+            let displayMaxTemp = maxTemp + (maxTemp - minTemp) * 0.1; // Add 10% padding above max
+
+            // Handle cases where all temperatures are the same
+            if (minTemp === maxTemp) {
+                displayMinTemp = minTemp - 5;
+                displayMaxTemp = maxTemp + 5;
+            }
+            const displayTempRange = displayMaxTemp - displayMinTemp;
+            const yAxisScale = chartHeight / displayTempRange;
+
+            // Draw X and Y axes
+            chartCtx.strokeStyle = chartAxisColor;
+            chartCtx.lineWidth = 2; // Thicker axes
+
+            // Y-axis
+            chartCtx.beginPath();
+            chartCtx.moveTo(padding, padding);
+            chartCtx.lineTo(padding, padding + chartHeight);
+            chartCtx.stroke();
+
+            // X-axis
+            chartCtx.beginPath();
+            chartCtx.moveTo(padding, padding + chartHeight);
+            chartCtx.lineTo(padding + chartWidth, padding + chartHeight);
+            chartCtx.stroke();
+
+            chartCtx.fillStyle = chartTextColor;
+            chartCtx.font = '14px Arial';
+            chartCtx.textAlign = 'center';
+            chartCtx.textBaseline = 'middle';
+
+            // Draw X-axis labels (Months) and vertical grid lines
+            const xStep = chartWidth / (months.length - 1); // Distance between points
+            months.forEach((month, i) => {
+                const x = padding + i * xStep;
+                chartCtx.fillText(month, x, padding + chartHeight + 25); // Label below axis
+                
+                // Draw vertical grid lines
+                if (i > 0 && i < months.length) { // Don't draw grid line on Y axis
+                    chartCtx.strokeStyle = chartGridColor;
+                    chartCtx.lineWidth = 0.5;
+                    chartCtx.beginPath();
+                    chartCtx.moveTo(x, padding + chartHeight);
+                    chartCtx.lineTo(x, padding);
+                    chartCtx.stroke();
+                }
+            });
+
+            // Draw Y-axis labels (Temperatures) and horizontal grid lines
+            const numYLabels = 5; // Approx number of labels
+            const tempInterval = displayTempRange / (numYLabels - 1);
+
+            chartCtx.textAlign = 'right';
+            for (let i = 0; i < numYLabels; i++) {
+                const tempValue = displayMinTemp + i * tempInterval;
+                const y = padding + chartHeight - ((tempValue - displayMinTemp) * yAxisScale);
+                
+                // Ensure label is within canvas bounds
+                if (y < padding - 5 || y > padding + chartHeight + 5) continue;
+
+                chartCtx.fillText(tempValue.toFixed(0) + '°C', padding - 10, y);
+                
+                // Draw horizontal grid lines
+                chartCtx.strokeStyle = chartGridColor;
+                chartCtx.lineWidth = 0.5;
+                chartCtx.beginPath();
+                chartCtx.moveTo(padding, y);
+                chartCtx.lineTo(padding + chartWidth, y);
+                chartCtx.stroke();
+            }
+            
+            // Draw the line chart
+            chartCtx.beginPath();
+            chartCtx.strokeStyle = chartLineColor;
+            chartCtx.lineWidth = 3;
+            chartCtx.lineJoin = 'round';
+            chartCtx.lineCap = 'round';
+
+            temperatures.forEach((temp, i) => {
+                const x = padding + i * xStep;
+                const y = padding + chartHeight - ((temp - displayMinTemp) * yAxisScale);
+
+                if (i === 0) {
+                    chartCtx.moveTo(x, y);
+                } else {
+                    chartCtx.lineTo(x, y);
+                }
+            });
+            chartCtx.stroke();
+
+            // Draw data points after the line
+            temperatures.forEach((temp, i) => {
+                const x = padding + i * xStep;
+                const y = padding + chartHeight - ((temp - displayMinTemp) * yAxisScale);
+                
+                chartCtx.fillStyle = chartPointColor;
+                chartCtx.strokeStyle = chartLineColor; // Border around points
+                chartCtx.lineWidth = 1.5;
+                chartCtx.beginPath();
+                chartCtx.arc(x, y, 5, 0, Math.PI * 2); // Radius 5
+                chartCtx.fill();
+                chartCtx.stroke();
+            });
+        }
+    </script>
+</body>
+</html>
